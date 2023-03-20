@@ -1,0 +1,73 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: "Backup Route53 Zones"
+
+Parameters:
+  S3BucketPrefix:
+    Type: String
+  S3BucketName:
+    Type: String
+  LogRetention:
+    Type: Number
+    AllowedValues:
+      - 1
+      - 3
+      - 7
+      - 14
+      - 30
+      - 60
+      - 90
+      - 120
+      - 180
+      - 365
+    Description: Length of time (in days) to retain log files. Must be a Valid CloudWatch retention period.
+
+Resources:
+  StorageBucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref S3BucketName
+
+  LambdaFunct:
+    Type: "AWS::Serverless::Function"
+    Properties:
+      CodeUri: build/
+      Description: "route 53 Backup"
+      Handler: "index.main"
+      MemorySize: 128
+      Runtime: python3.9
+      Timeout: 180
+      Events:
+        DailySchedule:
+          Type: Schedule
+          Properties:
+            Name: "DailyRoute53Backup"
+            Enabled: true
+            Schedule: "cron(09 17 ? * * *)"
+      Environment:
+        Variables:
+          S3BucketName: !Ref S3BucketName
+          S3BucketPrefix: !Ref S3BucketPrefix
+      Policies:
+        - Statement:
+          - Effect: Allow
+            Action:
+              - "route53:ListHostedZones"
+              - "route53:ListResourceRecordSets"
+              - "cloudwatch:PutMetricData"
+              - "route53:ListHostedZonesByName"
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - "s3:PutObject*"
+            Resource:
+              - !Sub "arn:aws:s3:::${S3BucketName}/${S3BucketPrefix}*"
+              - !Sub "arn:aws:s3:::${S3BucketName}/${S3BucketPrefix}"
+
+  LogGroup:
+    Type: "AWS::Logs::LogGroup"
+    DeletionPolicy: Delete
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaFunct}"
+      RetentionInDays: !Ref LogRetention
